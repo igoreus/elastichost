@@ -4,7 +4,9 @@ import base64
 import json
 from sys import stdout
 
-
+class ApiException(Exception):
+    def __init__(self, code=None, url=None, message=None):
+        self.code, self.url, self.message = code, url, message
 
 class Api(object):
     """
@@ -13,19 +15,20 @@ class Api(object):
     host = 'https://api-lon-p.elastichosts.com'
     uuid = 'f51cc9fe-27e2-4a47-a9ea-e30d7cc9c15a'
     api_key = 'DVEyGRVJAK66UndxAQDzpcudwCkCCDMFH5Rbk5GR'
+    disable_ssl_certificate_validation = False
     debug = 0
-
 
     def __init__(self):
         """
             Init object. Creates auth and headers and sets debug level
         """
         httplib2.debuglevel = self.debug
-        self.auth = base64.encodestring( self.uuid + ':' + self.api_key).replace("\n", '')
+        auth = base64.encodestring( self.uuid + ':' + self.api_key).replace("\n", '')
         self.headers = {
-            'Authorization' : 'Basic ' + self.auth,
+            'Authorization' : 'Basic ' + auth,
             'Accept': 'application/json',
         }
+        self.h = httplib2.Http(disable_ssl_certificate_validation=self.disable_ssl_certificate_validation)
 
     def _normalize_url(self, url):
         """
@@ -38,20 +41,28 @@ class Api(object):
         """
             Returns API data. Uses get method
         """
-        h = httplib2.Http()
-        resp, content = h.request(self.host + self._normalize_url(url), 'GET', headers = self.headers)
+        url = self.host + self._normalize_url(url)
+        resp, content = self.h.request(url, 'GET', headers = self.headers)
         if resp.status == 200:
             content =json.loads(content)
+        else:
+            raise ApiException(code=resp.status, url=url, message=content)
         return content
 
-
-
 if __name__ == '__main__':
-    api = Api()
-    for server in api.get_url('/servers/info'):
-        stdout.write('%s: ' % server['name'])
-        for i, drive in filter(lambda x: x[0].startswith('ide:'), server.items()):
-            drive_info = api.get_url('/drives/' + drive + '/info')
-            stdout.write('%s ' % drive_info['name'])
-        stdout.write("\n")
+    urls = {
+        'servers_info':'/servers/info',
+        'drives_info':'/drives/info',
+        'drive_info':'/drives/%s/info',
+    }
 
+    api = Api()
+    try:
+        for server in api.get_url(urls['servers_info']):
+            stdout.write('%s: ' % server['name'])
+            for i, drive in filter(lambda x: x[0].startswith('ide:'), server.items()):
+                drive_info = api.get_url(urls['drive_info'] %  drive)
+                stdout.write('%s ' % drive_info['name'])
+            stdout.write("\n")
+    except ApiException, e:
+        stdout.write('%s %s %s' %(e.code, e.message, e.url))
